@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Heart, HeartCrack } from 'lucide-react';
 import Bin from './components/Bin';
 import WasteItem from './components/WasteItem';
@@ -8,11 +8,11 @@ import type { WasteItem as WasteItemType, WasteCategory, Score, PlayerInfo, Exte
 
 const GAME_WIDTH = 800;
 const BIN_WIDTH = 64;
-const INITIAL_LIVES = 3;
+const INITIAL_LIVES = 0;
 const BIN_TOP_Y = 0.85; // Position of bin top relative to screen height
-const BIN_COLLECTION_ZONE = 30; // Increased for better detection
+const BIN_COLLECTION_ZONE = 60; // Increased for better detection
 const BIN_HIT_ZONE = BIN_WIDTH * 0.8; // Wider hit zone
-const BIN_MOVE_SPEED = 70;
+const BIN_MOVE_SPEED = 10;
 const INITIAL_DROP_SPEED = 2;
 const MAX_DROP_SPEED = 8;
 const SPEED_INCREMENT = 0.2;
@@ -45,47 +45,55 @@ function App() {
   const [gameOverReason, setGameOverReason] = useState('');
   const [highScores, setHighScores] = useState<Score[]>([]);
   const [screenHeight, setScreenHeight] = useState(window.innerHeight);
-  const [dropSpeed, setDropSpeed] = useState(INITIAL_DROP_SPEED);
-  const [spawnInterval, setSpawnInterval] = useState(INITIAL_SPAWN_INTERVAL);
-  const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [gameWidth, setGameWidth] = useState(Math.min(GAME_WIDTH, window.innerWidth));
-  const [processedCollisions] = useState(new Set<string>());
   const [scoreAnimation, setScoreAnimation] = useState(false);
   const [lifeLostAnimation, setLifeLostAnimation] = useState(false);
   const [lastScorePosition, setLastScorePosition] = useState({ x: 0, y: 0 });
 
+  const processedCollisions = useRef<Set<string>>(new Set());
+  const dropSpeedRef = useRef(INITIAL_DROP_SPEED);
+  const spawnIntervalRef = useRef(INITIAL_SPAWN_INTERVAL);
+  const binDirection = useRef<{ left: boolean; right: boolean }>({ left: false, right: false });
+  const animationFrameId = useRef<number | null>(null);
+  const binMoveIntervalId = useRef<number | null>(null);
+  const spawnTimeoutId = useRef<NodeJS.Timeout | null>(null);
+  const difficultyIntervalId = useRef<NodeJS.Timeout | null>(null);
+
+  // Handle Resize
   useEffect(() => {
     const handleResize = () => {
       setScreenHeight(window.innerHeight);
       setGameWidth(Math.min(GAME_WIDTH, window.innerWidth));
-      setBinPosition(prev => Math.min(Math.max(BIN_WIDTH / 2, prev), gameWidth - BIN_WIDTH / 2));
+      setBinPosition(prev => Math.min(Math.max(BIN_WIDTH / 2, prev), Math.min(GAME_WIDTH, window.innerWidth) - BIN_WIDTH / 2));
     };
     window.addEventListener('resize', handleResize);
     handleResize();
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Start Game
   const startGame = useCallback((name: string) => {
     if (!name.trim()) return;
-    
+
     setPlayerInfo({ name: name.toUpperCase() });
     setGameStarted(true);
     setGameOver(false);
     setScore(0);
     setLives(INITIAL_LIVES);
     setItems([]);
-    setDropSpeed(INITIAL_DROP_SPEED);
-    setSpawnInterval(INITIAL_SPAWN_INTERVAL);
+    dropSpeedRef.current = INITIAL_DROP_SPEED;
+    spawnIntervalRef.current = INITIAL_SPAWN_INTERVAL;
     setAssignedBin(['Wet', 'Dry', 'Hazardous'][Math.floor(Math.random() * 3)] as WasteCategory);
     setBinPosition(gameWidth / 2);
-    processedCollisions.clear();
-  }, [gameWidth, processedCollisions]);
+    processedCollisions.current.clear();
+  }, [gameWidth]);
 
+  // End Game
   const endGame = useCallback((reason: string) => {
     setGameOver(true);
     setGameStarted(false);
     setGameOverReason(reason);
-    
+
     if (playerInfo) {
       const newScore: Score = {
         name: playerInfo.name,
@@ -101,165 +109,182 @@ function App() {
     }
   }, [score, playerInfo]);
 
-  const checkCollision = useCallback((item: ExtendedWasteItem) => {
-    if (processedCollisions.has(item.id) || item.isCollected) return false;
-
-    const binTopY = screenHeight * BIN_TOP_Y;
-    const itemCenterY = item.y + ITEM_SIZE / 2;
-    const itemCenterX = item.x + ITEM_SIZE / 2;
-    
-    const inVerticalZone = Math.abs(itemCenterY - binTopY) <= BIN_COLLECTION_ZONE;
-    
-    const binLeft = binPosition - BIN_HIT_ZONE / 2;
-    const binRight = binPosition + BIN_HIT_ZONE / 2;
-    const inHorizontalZone = itemCenterX >= binLeft && itemCenterX <= binRight;
-    
-    return inVerticalZone && inHorizontalZone;
-  }, [binPosition, screenHeight, processedCollisions]);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStartX(e.touches[0].clientX);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchStartX === null) return;
-    
-    const touchX = e.touches[0].clientX;
-    const deltaX = touchX - touchStartX;
-    
-    setBinPosition(prev => {
-      const newPos = prev + deltaX;
-      return Math.max(BIN_WIDTH / 2, Math.min(gameWidth - BIN_WIDTH / 2, newPos));
-    });
-    
-    setTouchStartX(touchX);
-  };
-
-  const handleTouchEnd = () => {
-    setTouchStartX(null);
-  };
-
+  // Keyboard Handlers
   useEffect(() => {
     if (!gameStarted || gameOver) return;
 
-    const handleKeyPress = (e: KeyboardEvent) => {
-      const moveDistance = BIN_MOVE_SPEED * (e.shiftKey ? 1.5 : 1);
-      
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') {
-        setBinPosition(pos => Math.max(BIN_WIDTH / 2, pos - moveDistance));
+        binDirection.current.left = true;
       } else if (e.key === 'ArrowRight') {
-        setBinPosition(pos => Math.min(gameWidth - BIN_WIDTH / 2, pos + moveDistance));
+        binDirection.current.right = true;
       }
     };
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [gameStarted, gameOver, gameWidth]);
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        binDirection.current.left = false;
+      } else if (e.key === 'ArrowRight') {
+        binDirection.current.right = false;
+      }
+    };
 
-  useEffect(() => {
-    if (!gameStarted || gameOver) return;
-
-    const difficultyInterval = setInterval(() => {
-      setDropSpeed(prev => Math.min(prev + SPEED_INCREMENT, MAX_DROP_SPEED));
-      setSpawnInterval(prev => Math.max(prev * 0.97, MIN_SPAWN_INTERVAL));
-    }, SPEED_INTERVAL);
-
-    return () => clearInterval(difficultyInterval);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
   }, [gameStarted, gameOver]);
 
+  // Bin Movement
   useEffect(() => {
     if (!gameStarted || gameOver) return;
 
-    const spawn = setInterval(() => {
+    const moveBin = () => {
+      if (binDirection.current.left || binDirection.current.right) {
+        const moveDistance = BIN_MOVE_SPEED * (binDirection.current.left ? -1 : 1);
+        setBinPosition(pos => {
+          const newPos = pos + moveDistance;
+          return Math.max(BIN_WIDTH / 2, Math.min(gameWidth - BIN_WIDTH / 2, newPos));
+        });
+      }
+    };
+
+    binMoveIntervalId.current = window.setInterval(moveBin, 16);
+    return () => {
+      if (binMoveIntervalId.current !== null) {
+        clearInterval(binMoveIntervalId.current);
+      }
+    };
+  }, [gameStarted, gameOver, gameWidth]);
+
+  // Difficulty Increment
+  useEffect(() => {
+    if (!gameStarted || gameOver) return;
+
+    difficultyIntervalId.current = setInterval(() => {
+      dropSpeedRef.current = Math.min(dropSpeedRef.current + SPEED_INCREMENT, MAX_DROP_SPEED);
+      spawnIntervalRef.current = Math.max(spawnIntervalRef.current * 0.97, MIN_SPAWN_INTERVAL);
+    }, SPEED_INTERVAL);
+
+    return () => {
+      if (difficultyIntervalId.current !== null) {
+        clearInterval(difficultyIntervalId.current);
+      }
+    };
+  }, [gameStarted, gameOver]);
+
+  // Spawn Items
+  useEffect(() => {
+    if (!gameStarted || gameOver) return;
+
+    const spawnItem = () => {
       const randomItem = wasteItems[Math.floor(Math.random() * wasteItems.length)];
       const safeWidth = gameWidth - ITEM_SIZE;
       const safeX = Math.max(ITEM_SIZE, Math.min(safeWidth, Math.random() * safeWidth));
-      
+
       const newItem: WasteItemType = {
-        id: Date.now().toString(),
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         ...randomItem,
         x: safeX,
         y: -ITEM_SIZE, // Start above the screen
       };
       setItems(prev => [...prev, newItem]);
-    }, spawnInterval);
 
-    return () => clearInterval(spawn);
-  }, [gameStarted, gameOver, spawnInterval, gameWidth]);
+      // Schedule next spawn
+      spawnTimeoutId.current = setTimeout(spawnItem, spawnIntervalRef.current);
+    };
 
+    // Initial spawn
+    spawnTimeoutId.current = setTimeout(spawnItem, spawnIntervalRef.current);
+
+    return () => {
+      if (spawnTimeoutId.current !== null) {
+        clearTimeout(spawnTimeoutId.current);
+      }
+    };
+  }, [gameStarted, gameOver, gameWidth]);
+
+  // Game Loop using requestAnimationFrame
   useEffect(() => {
     if (!gameStarted || gameOver) return;
 
-    const gameLoop = setInterval(() => {
+    const binTopY = screenHeight * BIN_TOP_Y;
+
+    const gameLoop = () => {
+      let shouldEndGame = false;
+      let gameEndReason = '';
+
       setItems(prevItems => {
-        let shouldEndGame = false;
-        let gameEndReason = '';
-        
-        const itemsToProcess = prevItems.map(item => {
+        const updatedItems: ExtendedWasteItem[] = [];
+
+        prevItems.forEach(item => {
           if (item.isCollected) {
-            return { ...item, shouldRemove: true };
+            // Skip collected items; they'll be removed
+            return;
           }
 
-          const newY = item.y + dropSpeed;
-          const binTopY = screenHeight * BIN_TOP_Y;
+          const newY = item.y + dropSpeedRef.current;
           const itemCenterY = newY + ITEM_SIZE / 2;
           const itemCenterX = item.x + ITEM_SIZE / 2;
 
-          // Check for collection at bin's top edge
-          if (!processedCollisions.has(item.id)) {
-            // Item is approaching or crossing the bin's top edge
+          // Check for collision with bin
+          if (!processedCollisions.current.has(item.id)) {
             if (itemCenterY >= binTopY - BIN_COLLECTION_ZONE) {
-              const binLeftEdge = binPosition - BIN_WIDTH / 2;
-              const binRightEdge = binPosition + BIN_WIDTH / 2;
-              
+              const binLeftEdge = binPosition - BIN_HIT_ZONE / 2;
+              const binRightEdge = binPosition + BIN_HIT_ZONE / 2;
+
               if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
-                processedCollisions.add(item.id);
+                processedCollisions.current.add(item.id);
                 if (item.type === assignedBin) {
                   setScore(prev => prev + 1);
                   setScoreAnimation(true);
                   setLastScorePosition({ x: item.x, y: item.y });
-                  return { ...item, isCollected: true };
+                  return;
                 } else {
-                  shouldEndGame = true;
-                  gameEndReason = `Wrong item! ${item.name} is ${item.type} waste. You're collecting ${assignedBin} waste.`;
-                  return { ...item, shouldRemove: true };
+                  endGame(`Wrong item! ${item.name} is ${item.type} waste. You're collecting ${assignedBin} waste.`);
+                  return;
                 }
               }
             }
           }
 
-          // Remove items that have completely passed the bin
+          // Check if item has passed the bin without being collected
           if (newY > binTopY + BIN_COLLECTION_ZONE) {
-            if (item.type === assignedBin && !processedCollisions.has(item.id)) {
-              processedCollisions.add(item.id);
-              setLives(prev => {
-                const newLives = prev - 1;
-                if (newLives <= 0) {
-                  shouldEndGame = true;
-                  gameEndReason = 'Out of lives! Too many items missed.';
-                }
-                setLifeLostAnimation(true);
-                return newLives;
-              });
+            if (item.type === assignedBin && !processedCollisions.current.has(item.id)) {
+              processedCollisions.current.add(item.id);
+              setLives(0);
+              endGame('Out of lives! Too many items missed.');
+              return;
             }
-            return { ...item, shouldRemove: true };
+            return;
           }
 
-          return { ...item, y: newY };
+          // Update item's position
+          updatedItems.push({ ...item, y: newY });
         });
 
-        if (shouldEndGame) {
-          endGame(gameEndReason);
-          return [];
-        }
-
-        return itemsToProcess.filter(item => !item.shouldRemove);
+        return updatedItems;
       });
-    }, 16);
 
-    return () => clearInterval(gameLoop);
-  }, [gameStarted, gameOver, assignedBin, binPosition, screenHeight, endGame, dropSpeed, processedCollisions]);
+      if (shouldEndGame) {
+        endGame(gameEndReason);
+        return;
+      }
 
+      animationFrameId.current = requestAnimationFrame(gameLoop);
+    };
+
+    animationFrameId.current = requestAnimationFrame(gameLoop);
+    return () => {
+      if (animationFrameId.current !== null) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
+    };
+  }, [gameStarted, gameOver, assignedBin, binPosition, screenHeight, endGame]);
+
+  // Score Animation
   useEffect(() => {
     if (scoreAnimation) {
       const timer = setTimeout(() => setScoreAnimation(false), 500);
@@ -267,6 +292,7 @@ function App() {
     }
   }, [scoreAnimation]);
 
+  // Life Lost Animation
   useEffect(() => {
     if (lifeLostAnimation) {
       const timer = setTimeout(() => setLifeLostAnimation(false), 500);
@@ -274,16 +300,43 @@ function App() {
     }
   }, [lifeLostAnimation]);
 
+  // Touch Handlers
+  const touchStartXRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null) return;
+
+    const touchX = e.touches[0].clientX;
+    const deltaX = touchX - touchStartXRef.current;
+
+    requestAnimationFrame(() => {
+      setBinPosition(prev => {
+        const newPos = prev + deltaX;
+        return Math.max(BIN_WIDTH / 2, Math.min(gameWidth - BIN_WIDTH / 2, newPos));
+      });
+    });
+
+    touchStartXRef.current = touchX;
+  };
+
+  const handleTouchEnd = () => {
+    touchStartXRef.current = null;
+  };
+
   return (
     <div className="relative w-full h-screen overflow-hidden bg-gray-900">
       {!gameStarted && !gameOver && <Instructions onStart={startGame} />}
-      
+
       {gameStarted && !gameOver && (
         <>
           <div className="absolute top-4 left-4 text-white">
             <div className="text-xl mb-2">Player: {playerInfo?.name}</div>
             <div className="relative">
-              <div className={`text-xl mb-2 transition-all duration-200 ${scoreAnimation ? 'scale-125' : ''}`}>
+              <div className={`text-xl mb-2 transition-transform duration-200 ${scoreAnimation ? 'scale-125' : ''}`}>
                 Score: {score}
               </div>
               {scoreAnimation && (
@@ -337,8 +390,8 @@ function App() {
               <WasteItem 
                 key={item.id} 
                 {...item} 
-                dropSpeed={dropSpeed}
-                isCollected={item.isCollected}
+                dropSpeed={dropSpeedRef.current}
+                isCollected={item.isCollected || false}
               />
             ))}
             <Bin position={binPosition} category={assignedBin} />

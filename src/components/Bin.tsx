@@ -1,5 +1,4 @@
 import React from 'react';
-import { Trash2 } from 'lucide-react';
 import type { WasteCategory } from '../types';
 
 interface BinProps {
@@ -8,30 +7,37 @@ interface BinProps {
 }
 
 const Bin: React.FC<BinProps> = ({ position, category }) => {
-  const getBinColor = () => {
+  // Define bin colors based on category
+  const getBinColor = (category: WasteCategory) => {
     switch (category) {
-      case 'Hazardous':
-        return 'bg-red-500';
-      case 'Wet':
-        return 'bg-green-500';
       case 'Dry':
         return 'bg-blue-500';
+      case 'Wet':
+        return 'bg-green-500';
+      case 'Hazardous':
+        return 'bg-red-500';
+      default:
+        return 'bg-gray-500';
     }
   };
 
   return (
     <div
-      className="absolute flex flex-col items-center transition-all duration-100"
-      style={{ 
-        left: position, 
-        bottom: '15%', // Positioned at 85% of screen height
-        transform: 'translateX(-50%)' 
-      }}
+      className={`absolute bottom-8 transform -translate-x-1/2 transition-transform duration-100 ease-linear`}
+      style={{ left: position }}
     >
-      <Trash2 className={`w-8 h-8 mb-2 ${getBinColor().replace('bg-', 'text-')}`} />
-      <div className={`w-16 h-16 ${getBinColor()} rounded-lg relative`}>
-        {/* Visual indicator for collection zone */}
-        <div className="absolute -top-1 left-0 right-0 h-0.5 bg-white opacity-50" />
+      {/* Bin lid */}
+      <div className={`w-16 h-3 ${getBinColor(category)} rounded-t-lg`} />
+      
+      {/* Bin body */}
+      <div className={`w-16 h-16 ${getBinColor(category)} relative`}>
+        {/* Optional: Add bin details/decorations */}
+        <div className="absolute inset-2 border-2 border-opacity-20 border-white rounded" />
+        
+        {/* Optional: Add recycling symbol or category indicator */}
+        <div className="absolute inset-0 flex items-center justify-center text-white opacity-70 text-xs">
+          {category}
+        </div>
       </div>
     </div>
   );
