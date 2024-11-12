@@ -13,13 +13,20 @@ const BIN_TOP_Y = 0.85; // Position of bin top relative to screen height
 const BIN_COLLECTION_ZONE = 60; // Increased for better detection
 const BIN_HIT_ZONE = BIN_WIDTH * 0.8; // Wider hit zone
 const BIN_MOVE_SPEED = 10;
-const INITIAL_DROP_SPEED = 2;
-const MAX_DROP_SPEED = 8;
-const SPEED_INCREMENT = 0.2;
+const INITIAL_DROP_SPEED = 1.5;
+const MAX_DROP_SPEED = 4;
+const SPEED_INCREMENT = 0.25;
 const SPEED_INTERVAL = 15000;
 const INITIAL_SPAWN_INTERVAL = 2500;
-const MIN_SPAWN_INTERVAL = 1500;
+const MIN_SPAWN_INTERVAL = 1000;
 const ITEM_SIZE = 40; // Size of waste items for collision detection
+const GAME_DURATION = 30000; // 30 seconds in milliseconds
+const COMBO_MULTIPLIER = 0.5; // Each combo adds 50% more points
+const MAX_COMBO = 5; // Maximum combo multiplier
+const DIFFICULTY_INTERVAL = 6000; // Increase difficulty every 6 seconds
+
+const VERTICAL_SAFE_DISTANCE = ITEM_SIZE * 4; // Minimum vertical gap between items
+const HORIZONTAL_SAFE_DISTANCE = ITEM_SIZE * 2; // Minimum horizontal gap between items
 
 const wasteItems = [
   { type: 'Wet' as WasteCategory, name: 'Banana Peel', icon: '🍌' },
@@ -49,6 +56,10 @@ function App() {
   const [scoreAnimation, setScoreAnimation] = useState(false);
   const [lifeLostAnimation, setLifeLostAnimation] = useState(false);
   const [lastScorePosition, setLastScorePosition] = useState({ x: 0, y: 0 });
+  const [timeRemaining, setTimeRemaining] = useState(GAME_DURATION);
+  const [comboCount, setComboCount] = useState(0);
+  const [lastCollectedType, setLastCollectedType] = useState<WasteCategory | null>(null);
+  const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const processedCollisions = useRef<Set<string>>(new Set());
   const dropSpeedRef = useRef(INITIAL_DROP_SPEED);
@@ -58,6 +69,9 @@ function App() {
   const binMoveIntervalId = useRef<number | null>(null);
   const spawnTimeoutId = useRef<NodeJS.Timeout | null>(null);
   const difficultyIntervalId = useRef<NodeJS.Timeout | null>(null);
+
+  const [difficultyLevel, setDifficultyLevel] = useState(1);
+  const difficultyTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Handle Resize
   useEffect(() => {
@@ -81,6 +95,10 @@ function App() {
     setScore(0);
     setLives(INITIAL_LIVES);
     setItems([]);
+    setTimeRemaining(GAME_DURATION);
+    setComboCount(0);
+    setLastCollectedType(null);
+    setDifficultyLevel(1);
     dropSpeedRef.current = INITIAL_DROP_SPEED;
     spawnIntervalRef.current = INITIAL_SPAWN_INTERVAL;
     setAssignedBin(['Wet', 'Dry', 'Hazardous'][Math.floor(Math.random() * 3)] as WasteCategory);
@@ -180,31 +198,71 @@ function App() {
     if (!gameStarted || gameOver) return;
 
     const spawnItem = () => {
-      const randomItem = wasteItems[Math.floor(Math.random() * wasteItems.length)];
-      const safeWidth = gameWidth - ITEM_SIZE;
-      const safeX = Math.max(ITEM_SIZE, Math.min(safeWidth, Math.random() * safeWidth));
+      const itemsToSpawn = Math.min(Math.floor(difficultyLevel / 3) + 1, 2);
+      const usedCategories = new Set<WasteCategory>();
+      const usedPositions: { x: number, y: number }[] = [];
 
-      const newItem: WasteItemType = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        ...randomItem,
-        x: safeX,
-        y: -ITEM_SIZE, // Start above the screen
+      // Helper to check if a position is safe
+      const isPositionSafe = (x: number, y: number): boolean => {
+        return !usedPositions.some(pos => {
+          const xDist = Math.abs(pos.x - x);
+          const yDist = Math.abs(pos.y - y);
+          return xDist < HORIZONTAL_SAFE_DISTANCE && yDist < VERTICAL_SAFE_DISTANCE;
+        });
       };
-      setItems(prev => [...prev, newItem]);
 
-      // Schedule next spawn
+      // Helper to get a random category not yet used
+      const getNextCategory = (): WasteCategory => {
+        const categories: WasteCategory[] = ['Wet', 'Dry', 'Hazardous'];
+        const availableCategories = categories.filter(cat => !usedCategories.has(cat));
+        return availableCategories[Math.floor(Math.random() * availableCategories.length)];
+      };
+
+      // Spawn items with safe spacing
+      for (let i = 0; i < itemsToSpawn; i++) {
+        let safeX: number;
+        let safeY: number;
+        let attempts = 0;
+        const maxAttempts = 10;
+
+        // Find a safe position
+        do {
+          safeX = Math.random() * (gameWidth - ITEM_SIZE);
+          safeY = -ITEM_SIZE - (Math.random() * VERTICAL_SAFE_DISTANCE * i);
+          attempts++;
+        } while (!isPositionSafe(safeX, safeY) && attempts < maxAttempts);
+
+        // Only spawn if we found a safe position
+        if (attempts < maxAttempts) {
+          const category = getNextCategory();
+          const randomItem = wasteItems.find(item => item.type === category);
+          
+          if (randomItem) {
+            usedCategories.add(category);
+            usedPositions.push({ x: safeX, y: safeY });
+
+            setItems(prev => [...prev, {
+              ...randomItem,
+              id: Date.now().toString() + Math.random().toString(36).substr(2, 9) + i,
+              x: safeX,
+              y: safeY,
+              isCollected: false
+            }]);
+          }
+        }
+      }
+
       spawnTimeoutId.current = setTimeout(spawnItem, spawnIntervalRef.current);
     };
 
-    // Initial spawn
     spawnTimeoutId.current = setTimeout(spawnItem, spawnIntervalRef.current);
 
     return () => {
-      if (spawnTimeoutId.current !== null) {
+      if (spawnTimeoutId.current) {
         clearTimeout(spawnTimeoutId.current);
       }
     };
-  }, [gameStarted, gameOver, gameWidth]);
+  }, [gameStarted, gameOver, gameWidth, difficultyLevel]);
 
   // Game Loop using requestAnimationFrame
   useEffect(() => {
@@ -237,12 +295,24 @@ function App() {
             if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
               processedCollisions.current.add(item.id);
               if (item.type === assignedBin) {
-                setScore(prev => prev + 1);
+                // Calculate combo bonus
+                const comboBonus = Math.min(comboCount, MAX_COMBO) * COMBO_MULTIPLIER;
+                const pointsToAdd = Math.ceil(1 + comboBonus);
+                
+                setScore(prev => prev + pointsToAdd);
                 setScoreAnimation(true);
                 setLastScorePosition({ x: item.x, y: item.y });
+                
+                // Update combo
+                if (lastCollectedType === assignedBin) {
+                  setComboCount(prev => prev + 1);
+                } else {
+                  setComboCount(1);
+                }
+                setLastCollectedType(assignedBin);
                 return;
               } else {
-                endGame(`Wrong item! ${item.name} is ${item.type} waste. You're collecting ${assignedBin} waste.`);
+                endGame(`Wrong item! ${item.name} is ${item.type} waste.`);
                 return;
               }
             }
@@ -323,6 +393,54 @@ function App() {
     touchStartXRef.current = null;
   };
 
+  // Add new useEffect for the timer
+  useEffect(() => {
+    if (!gameStarted || gameOver) return;
+
+    const timer = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 0) {
+          endGame('Time\'s up!');
+          return 0;
+        }
+        return prev - 100; // Update every 100ms for smooth countdown
+      });
+    }, 100);
+
+    gameTimerRef.current = timer;
+    return () => clearInterval(timer);
+  }, [gameStarted, gameOver]);
+
+  // Add new useEffect for difficulty progression
+  useEffect(() => {
+    if (!gameStarted || gameOver) return;
+
+    const increaseDifficulty = () => {
+      setDifficultyLevel(prev => prev + 1);
+      
+      // Gentler drop speed increase
+      dropSpeedRef.current = Math.min(
+        INITIAL_DROP_SPEED + (difficultyLevel * SPEED_INCREMENT * 0.5),
+        MAX_DROP_SPEED
+      );
+
+      // Gentler spawn interval decrease
+      spawnIntervalRef.current = Math.max(
+        INITIAL_SPAWN_INTERVAL * Math.pow(0.92, difficultyLevel),
+        MIN_SPAWN_INTERVAL
+      );
+    };
+
+    const difficultyTimer = setInterval(increaseDifficulty, DIFFICULTY_INTERVAL);
+    difficultyTimerRef.current = difficultyTimer;
+
+    return () => {
+      if (difficultyTimerRef.current) {
+        clearInterval(difficultyTimerRef.current);
+      }
+    };
+  }, [gameStarted, gameOver, difficultyLevel]);
+
   return (
     <div className="relative w-full h-screen overflow-hidden bg-gray-900">
       {!gameStarted && !gameOver && <Instructions onStart={startGame} />}
@@ -397,6 +515,20 @@ function App() {
             <p className="hidden md:block">Use left and right arrow keys to move the bin (hold Shift for faster movement)</p>
             <p className="md:hidden">Swipe left or right to move the bin</p>
             <p>Collect only {assignedBin} waste items!</p>
+          </div>
+
+          <div className="absolute top-4 right-4 text-white">
+            <div className="text-xl mb-2">
+              Time: {Math.ceil(timeRemaining / 1000)}s
+            </div>
+            <div className="text-xl mb-2">
+              Level: {difficultyLevel}
+            </div>
+            {comboCount > 1 && (
+              <div className="text-yellow-400 text-xl">
+                Combo x{Math.min(comboCount, MAX_COMBO)}
+              </div>
+            )}
           </div>
         </>
       )}
