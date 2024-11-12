@@ -8,7 +8,7 @@ import type { WasteItem as WasteItemType, WasteCategory, Score, PlayerInfo, Exte
 
 const GAME_WIDTH = 800;
 const BIN_WIDTH = 64;
-const INITIAL_LIVES = 0;
+const INITIAL_LIVES = 3;
 const BIN_TOP_Y = 0.85; // Position of bin top relative to screen height
 const BIN_COLLECTION_ZONE = 60; // Increased for better detection
 const BIN_HIT_ZONE = BIN_WIDTH * 0.8; // Wider hit zone
@@ -20,7 +20,6 @@ const SPEED_INTERVAL = 15000;
 const INITIAL_SPAWN_INTERVAL = 2500;
 const MIN_SPAWN_INTERVAL = 1000;
 const ITEM_SIZE = 40; // Size of waste items for collision detection
-const GAME_DURATION = 30000; // 30 seconds in milliseconds
 const COMBO_MULTIPLIER = 0.5; // Each combo adds 50% more points
 const MAX_COMBO = 5; // Maximum combo multiplier
 const DIFFICULTY_INTERVAL = 6000; // Increase difficulty every 6 seconds
@@ -56,7 +55,6 @@ function App() {
   const [scoreAnimation, setScoreAnimation] = useState(false);
   const [lifeLostAnimation, setLifeLostAnimation] = useState(false);
   const [lastScorePosition, setLastScorePosition] = useState({ x: 0, y: 0 });
-  const [timeRemaining, setTimeRemaining] = useState(GAME_DURATION);
   const [comboCount, setComboCount] = useState(0);
   const [lastCollectedType, setLastCollectedType] = useState<WasteCategory | null>(null);
   const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -95,7 +93,6 @@ function App() {
     setScore(0);
     setLives(INITIAL_LIVES);
     setItems([]);
-    setTimeRemaining(GAME_DURATION);
     setComboCount(0);
     setLastCollectedType(null);
     setDifficultyLevel(1);
@@ -312,7 +309,11 @@ function App() {
                 setLastCollectedType(assignedBin);
                 return;
               } else {
-                endGame(`Wrong item! ${item.name} is ${item.type} waste.`);
+                const message = `Wrong bin! ${item.name} (${item.type} waste) doesn't belong in the ${assignedBin} waste bin.
+                \n• ${item.name} should go in the ${item.type} waste bin
+                \n• You were collecting ${assignedBin} waste`;
+                
+                endGame(message);
                 return;
               }
             }
@@ -321,8 +322,7 @@ function App() {
           if (newY > binTopY + BIN_COLLECTION_ZONE) {
             if (item.type === assignedBin && !processedCollisions.current.has(item.id)) {
               processedCollisions.current.add(item.id);
-              setLives(0);
-              endGame('Out of lives! Too many items missed.');
+              endGame(`Missed a ${assignedBin} waste item! (${item.name})`);
               return;
             }
             return;
@@ -398,18 +398,12 @@ function App() {
     if (!gameStarted || gameOver) return;
 
     const timer = setInterval(() => {
-      setTimeRemaining(prev => {
-        if (prev <= 0) {
-          endGame('Time\'s up!');
-          return 0;
-        }
-        return prev - 100; // Update every 100ms for smooth countdown
-      });
+      // Time limit removed - game continues until player loses all lives
     }, 100);
 
     gameTimerRef.current = timer;
     return () => clearInterval(timer);
-  }, [gameStarted, gameOver]);
+  }, [gameStarted, gameOver, score]);
 
   // Add new useEffect for difficulty progression
   useEffect(() => {
@@ -461,7 +455,7 @@ function App() {
                     top: `${lastScorePosition.y}px` 
                   }}
                 >
-                  +1
+                  +{Math.ceil(1 + Math.min(comboCount, MAX_COMBO) * COMBO_MULTIPLIER)}
                 </div>
               )}
             </div>
@@ -470,14 +464,14 @@ function App() {
                 <div 
                   key={i} 
                   className={`transition-transform duration-200 ${
-                    i === lives && lifeLostAnimation ? 'scale-150' : ''
+                    i >= lives && lifeLostAnimation ? 'scale-150' : ''
                   }`}
                 >
                   {i < lives ? (
                     <Heart className="w-6 h-6 text-red-500 mr-1" />
                   ) : (
                     <HeartCrack className={`w-6 h-6 mr-1 ${
-                      i === lives && lifeLostAnimation ? 'text-red-600' : 'text-gray-500'
+                      i >= lives && lifeLostAnimation ? 'text-red-600' : 'text-gray-500'
                     }`} />
                   )}
                 </div>
@@ -518,9 +512,6 @@ function App() {
           </div>
 
           <div className="absolute top-4 right-4 text-white">
-            <div className="text-xl mb-2">
-              Time: {Math.ceil(timeRemaining / 1000)}s
-            </div>
             <div className="text-xl mb-2">
               Level: {difficultyLevel}
             </div>
