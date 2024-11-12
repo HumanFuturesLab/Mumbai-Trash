@@ -221,7 +221,6 @@ function App() {
 
         prevItems.forEach(item => {
           if (item.isCollected) {
-            // Skip collected items; they'll be removed
             return;
           }
 
@@ -229,28 +228,26 @@ function App() {
           const itemCenterY = newY + ITEM_SIZE / 2;
           const itemCenterX = item.x + ITEM_SIZE / 2;
 
-          // Check for collision with bin
-          if (!processedCollisions.current.has(item.id)) {
-            if (itemCenterY >= binTopY - BIN_COLLECTION_ZONE) {
-              const binLeftEdge = binPosition - BIN_HIT_ZONE / 2;
-              const binRightEdge = binPosition + BIN_HIT_ZONE / 2;
+          if (!processedCollisions.current.has(item.id) && 
+              itemCenterY >= binTopY - BIN_COLLECTION_ZONE && 
+              itemCenterY <= binTopY + BIN_COLLECTION_ZONE) {
+            const binLeftEdge = binPosition - BIN_HIT_ZONE / 2;
+            const binRightEdge = binPosition + BIN_HIT_ZONE / 2;
 
-              if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
-                processedCollisions.current.add(item.id);
-                if (item.type === assignedBin) {
-                  setScore(prev => prev + 1);
-                  setScoreAnimation(true);
-                  setLastScorePosition({ x: item.x, y: item.y });
-                  return;
-                } else {
-                  endGame(`Wrong item! ${item.name} is ${item.type} waste. You're collecting ${assignedBin} waste.`);
-                  return;
-                }
+            if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
+              processedCollisions.current.add(item.id);
+              if (item.type === assignedBin) {
+                setScore(prev => prev + 1);
+                setScoreAnimation(true);
+                setLastScorePosition({ x: item.x, y: item.y });
+                return;
+              } else {
+                endGame(`Wrong item! ${item.name} is ${item.type} waste. You're collecting ${assignedBin} waste.`);
+                return;
               }
             }
           }
 
-          // Check if item has passed the bin without being collected
           if (newY > binTopY + BIN_COLLECTION_ZONE) {
             if (item.type === assignedBin && !processedCollisions.current.has(item.id)) {
               processedCollisions.current.add(item.id);
@@ -261,7 +258,6 @@ function App() {
             return;
           }
 
-          // Update item's position
           updatedItems.push({ ...item, y: newY });
         });
 
