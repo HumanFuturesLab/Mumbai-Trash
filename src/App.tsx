@@ -279,12 +279,22 @@ function App() {
           const itemCenterX = item.x + ITEM_SIZE / 2;
           const binTopY = screenHeight * BIN_TOP_Y;
 
-          // Make non-matching items inactive once they cross the bin's top position
-          if (itemCenterY >= binTopY && item.type !== assignedBin) {
-            return;
+          // Check for collisions near the bin's top edge for wrong items
+          if (!processedCollisions.current.has(item.id) && 
+              item.type !== assignedBin && 
+              Math.abs(itemCenterY - binTopY) < 10) { // Small tolerance zone at bin top
+            
+            const binLeftEdge = binPosition - BIN_HIT_ZONE / 2;
+            const binRightEdge = binPosition + BIN_HIT_ZONE / 2;
+
+            if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
+              processedCollisions.current.add(item.id);
+              endGame(`Wrong bin! ${item.name} doesn't belong in the ${assignedBin} waste bin!`);
+              return;
+            }
           }
 
-          // Only check for collisions if it's the correct type and within collection zone
+          // Check for correct item collisions within collection zone
           if (!processedCollisions.current.has(item.id) && 
               item.type === assignedBin &&
               itemCenterY >= binTopY - BIN_COLLECTION_ZONE && 
@@ -296,7 +306,6 @@ function App() {
             if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
               processedCollisions.current.add(item.id);
               
-              // Calculate combo bonus and update score
               const comboBonus = Math.min(comboCount, MAX_COMBO) * COMBO_MULTIPLIER;
               const pointsToAdd = Math.ceil(1 + comboBonus);
               
@@ -314,16 +323,20 @@ function App() {
             }
           }
 
-          // Check if item has passed the collection zone
+          // Check if correct item has passed the collection zone
           if (newY > binTopY + BIN_COLLECTION_ZONE) {
             if (item.type === assignedBin && !processedCollisions.current.has(item.id)) {
               processedCollisions.current.add(item.id);
-              endGame(`Missed a ${assignedBin} waste item! (${item.name})`);
+              setLives(prev => prev - 1);
+              setLifeLostAnimation(true);
+              if (lives <= 1) {
+                endGame(`Game Over! You ran out of lives!`);
+              }
               return;
             }
-            return;
           }
 
+          // Continue updating position for items that haven't been collected
           updatedItems.push({ ...item, y: newY });
         });
 

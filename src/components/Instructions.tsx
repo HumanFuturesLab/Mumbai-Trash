@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Info } from 'lucide-react';
 
 interface InstructionsProps {
@@ -8,6 +8,13 @@ interface InstructionsProps {
 const Instructions: React.FC<InstructionsProps> = ({ onStart }) => {
   const [playerName, setPlayerName] = useState('');
   const [error, setError] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, []);
 
   const handleStart = () => {
     if (!playerName.trim()) {
@@ -40,6 +47,7 @@ const Instructions: React.FC<InstructionsProps> = ({ onStart }) => {
           <div className="mb-6">
             <form onSubmit={handleSubmit}>
               <input
+                ref={inputRef}
                 type="text"
                 value={playerName}
                 onChange={(e) => {
@@ -50,6 +58,7 @@ const Instructions: React.FC<InstructionsProps> = ({ onStart }) => {
                 placeholder="Enter your name"
                 className="w-full px-4 py-2 rounded bg-gray-700 text-white border-2 border-gray-600 focus:border-blue-500 outline-none"
                 maxLength={10}
+                autoFocus
               />
               {error && <p className="text-red-500 mt-2">{error}</p>}
             </form>
