@@ -17,6 +17,19 @@ const Instructions: React.FC<InstructionsProps> = ({ onStart }) => {
     onStart(playerName);
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (playerName.trim()) {
+      onStart(playerName);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && playerName.trim()) {
+      onStart(playerName);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-gray-800 p-8 rounded-lg text-white max-w-md w-full">
@@ -25,18 +38,21 @@ const Instructions: React.FC<InstructionsProps> = ({ onStart }) => {
           <h2 className="text-2xl font-bold mb-4">Eco Sort Game</h2>
           
           <div className="mb-6">
-            <input
-              type="text"
-              value={playerName}
-              onChange={(e) => {
-                setPlayerName(e.target.value.toUpperCase());
-                setError('');
-              }}
-              placeholder="Enter your name"
-              className="w-full px-4 py-2 rounded bg-gray-700 text-white border-2 border-gray-600 focus:border-blue-500 outline-none"
-              maxLength={10}
-            />
-            {error && <p className="text-red-500 mt-2">{error}</p>}
+            <form onSubmit={handleSubmit}>
+              <input
+                type="text"
+                value={playerName}
+                onChange={(e) => {
+                  setPlayerName(e.target.value.toUpperCase());
+                  setError('');
+                }}
+                onKeyPress={handleKeyPress}
+                placeholder="Enter your name"
+                className="w-full px-4 py-2 rounded bg-gray-700 text-white border-2 border-gray-600 focus:border-blue-500 outline-none"
+                maxLength={10}
+              />
+              {error && <p className="text-red-500 mt-2">{error}</p>}
+            </form>
           </div>
           
           <div className="text-left space-y-4 mb-6">

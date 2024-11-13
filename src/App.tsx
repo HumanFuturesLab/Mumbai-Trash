@@ -4,7 +4,7 @@ import Bin from './components/Bin';
 import WasteItem from './components/WasteItem';
 import GameOver from './components/GameOver';
 import Instructions from './components/Instructions';
-import type { WasteItem as WasteItemType, WasteCategory, Score, PlayerInfo, ExtendedWasteItem } from './types';
+import type { WasteCategory, Score, PlayerInfo, ExtendedWasteItem } from './types';
 
 const GAME_WIDTH = 800;
 const BIN_WIDTH = 64;
@@ -265,12 +265,7 @@ function App() {
   useEffect(() => {
     if (!gameStarted || gameOver) return;
 
-    const binTopY = screenHeight * BIN_TOP_Y;
-
     const gameLoop = () => {
-      let shouldEndGame = false;
-      let gameEndReason = '';
-
       setItems(prevItems => {
         const updatedItems: ExtendedWasteItem[] = [];
 
@@ -282,43 +277,44 @@ function App() {
           const newY = item.y + dropSpeedRef.current;
           const itemCenterY = newY + ITEM_SIZE / 2;
           const itemCenterX = item.x + ITEM_SIZE / 2;
+          const binTopY = screenHeight * BIN_TOP_Y;
 
+          // Make non-matching items inactive once they cross the bin's top position
+          if (itemCenterY >= binTopY && item.type !== assignedBin) {
+            return;
+          }
+
+          // Only check for collisions if it's the correct type and within collection zone
           if (!processedCollisions.current.has(item.id) && 
+              item.type === assignedBin &&
               itemCenterY >= binTopY - BIN_COLLECTION_ZONE && 
               itemCenterY <= binTopY + BIN_COLLECTION_ZONE) {
+            
             const binLeftEdge = binPosition - BIN_HIT_ZONE / 2;
             const binRightEdge = binPosition + BIN_HIT_ZONE / 2;
 
             if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
               processedCollisions.current.add(item.id);
-              if (item.type === assignedBin) {
-                // Calculate combo bonus
-                const comboBonus = Math.min(comboCount, MAX_COMBO) * COMBO_MULTIPLIER;
-                const pointsToAdd = Math.ceil(1 + comboBonus);
-                
-                setScore(prev => prev + pointsToAdd);
-                setScoreAnimation(true);
-                setLastScorePosition({ x: item.x, y: item.y });
-                
-                // Update combo
-                if (lastCollectedType === assignedBin) {
-                  setComboCount(prev => prev + 1);
-                } else {
-                  setComboCount(1);
-                }
-                setLastCollectedType(assignedBin);
-                return;
+              
+              // Calculate combo bonus and update score
+              const comboBonus = Math.min(comboCount, MAX_COMBO) * COMBO_MULTIPLIER;
+              const pointsToAdd = Math.ceil(1 + comboBonus);
+              
+              setScore(prev => prev + pointsToAdd);
+              setScoreAnimation(true);
+              setLastScorePosition({ x: item.x, y: item.y });
+              
+              if (lastCollectedType === assignedBin) {
+                setComboCount(prev => prev + 1);
               } else {
-                const message = `Wrong bin! ${item.name} (${item.type} waste) doesn't belong in the ${assignedBin} waste bin.
-                \n• ${item.name} should go in the ${item.type} waste bin
-                \n• You were collecting ${assignedBin} waste`;
-                
-                endGame(message);
-                return;
+                setComboCount(1);
               }
+              setLastCollectedType(assignedBin);
+              return;
             }
           }
 
+          // Check if item has passed the collection zone
           if (newY > binTopY + BIN_COLLECTION_ZONE) {
             if (item.type === assignedBin && !processedCollisions.current.has(item.id)) {
               processedCollisions.current.add(item.id);
@@ -333,11 +329,6 @@ function App() {
 
         return updatedItems;
       });
-
-      if (shouldEndGame) {
-        endGame(gameEndReason);
-        return;
-      }
 
       animationFrameId.current = requestAnimationFrame(gameLoop);
     };
