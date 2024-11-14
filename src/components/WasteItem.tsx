@@ -1,64 +1,53 @@
 import React from 'react';
-import { motion } from 'framer-motion';
-import type { WasteItem as WasteItemType } from '../types';
+import type { WasteCategory } from '../types';
 
-interface WasteItemProps extends WasteItemType {
-  dropSpeed: number;
+interface WasteItemProps {
+  x: number;
+  y: number;
+  icon: string;
+  name: string;
+  type: WasteCategory;
   isCollected?: boolean;
 }
 
-const WasteItem: React.FC<WasteItemProps> = ({ 
-  type, 
-  x, 
-  y, 
-  name, 
-  icon, 
-  dropSpeed,
-  isCollected 
-}) => {
-  const getTypeStyle = () => {
-    switch (type) {
-      case 'Hazardous':
-        return 'text-red-400';
-      case 'Wet':
-        return 'text-green-400';
-      case 'Dry':
-        return 'text-blue-400';
-    }
-  };
+const ITEM_SIZE = 40; // Ensure consistency with App.tsx
 
+const WasteItem: React.FC<WasteItemProps> = ({
+  x,
+  y,
+  icon,
+  name,
+  isCollected = false,
+}) => {
   return (
-    <motion.div
-      className="absolute flex flex-col items-center pointer-events-none"
-      style={{ 
-        left: x, 
-        top: y,
-        transform: 'translate(-50%, -50%)',
-        zIndex: 10
+    <div
+      className={`absolute flex flex-col items-center transition-all ${
+        isCollected ? 'opacity-0 scale-0' : ''
+      }`}
+      style={{
+        left: `${x}px`,
+        top: `${y}px`,
+        width: `${ITEM_SIZE}px`,
+        height: `${ITEM_SIZE}px`,
+        transition: 'opacity 0.3s, transform 0.3s',
       }}
-      initial={{ y, opacity: 1, scale: 1 }}
-      animate={{ 
-        y: isCollected ? y : window.innerHeight,
-        opacity: isCollected ? 0 : 1,
-        scale: isCollected ? 0.5 : 1
-      }}
-      transition={{ 
-        y: {
-          duration: isCollected ? 0.2 : (window.innerHeight - y) / (dropSpeed * 16),
-          ease: isCollected ? 'easeOut' : 'linear'
-        },
-        opacity: {
-          duration: 0.2
-        },
-        scale: {
-          duration: 0.2
-        }
-      }}
+      title={name}
     >
-      <span className="text-4xl mb-1">{icon}</span>
-      <span className={`text-sm ${getTypeStyle()}`}>{name}</span>
-    </motion.div>
+      <div className="w-full h-full flex items-center justify-center">
+        <span
+          className="text-3xl select-none"
+          role="img"
+          aria-label={name}
+        >
+          {icon}
+        </span>
+      </div>
+      {/* Ensure the item name text is always white */}
+      <span className="mt-1 text-xs text-white bg-black/50 px-2 py-0.5 rounded-full whitespace-nowrap backdrop-blur-sm">
+        {name}
+      </span>
+    </div>
   );
 };
 
-export default WasteItem;
+export default React.memo(WasteItem);
