@@ -8,7 +8,6 @@ interface WasteItemProps extends WasteItemType {
 }
 
 const WasteItem: React.FC<WasteItemProps> = ({ 
-  type, 
   x, 
   y, 
   name, 
@@ -16,17 +15,6 @@ const WasteItem: React.FC<WasteItemProps> = ({
   dropSpeed,
   isCollected 
 }) => {
-  const getTypeStyle = () => {
-    switch (type) {
-      case 'Hazardous':
-        return 'text-red-400';
-      case 'Wet':
-        return 'text-green-400';
-      case 'Dry':
-        return 'text-blue-400';
-    }
-  };
-
   return (
     <motion.div
       className="absolute flex flex-col items-center pointer-events-none"
@@ -56,7 +44,9 @@ const WasteItem: React.FC<WasteItemProps> = ({
       }}
     >
       <span className="text-4xl mb-1">{icon}</span>
-      <span className={`text-sm ${getTypeStyle()}`}>{name}</span>
+      <span className="text-sm text-white bg-black/50 px-2 py-0.5 rounded-md border border-white/30 whitespace-nowrap">
+        {name}
+      </span>
     </motion.div>
   );
 };
