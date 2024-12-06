@@ -42,7 +42,7 @@ const Instructions: React.FC<InstructionsProps> = ({ onStart }) => {
       <div className="bg-gray-800 p-8 rounded-lg text-white max-w-md w-full">
         <div className="text-center">
           <Info className="w-16 h-16 text-blue-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-4">Eco Sort Game</h2>
+          <h2 className="text-2xl font-bold mb-4">Beat The Kid</h2>
           
           <div className="mb-6">
             <form onSubmit={handleSubmit}>

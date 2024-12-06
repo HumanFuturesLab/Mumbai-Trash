@@ -11,10 +11,17 @@ const WasteItem: React.FC<WasteItemProps> = ({
   x, 
   y, 
   name, 
-  icon, 
+  icon,
+  type, 
   dropSpeed,
   isCollected 
 }) => {
+  const typeColors = {
+    Wet: 'bg-green-500/20 border-green-500/50',
+    Dry: 'bg-blue-500/20 border-blue-500/50',
+    Hazardous: 'bg-red-500/20 border-red-500/50'
+  };
+
   return (
     <motion.div
       className="absolute flex flex-col items-center pointer-events-none"
@@ -24,29 +31,45 @@ const WasteItem: React.FC<WasteItemProps> = ({
         transform: 'translate(-50%, -50%)',
         zIndex: 10
       }}
-      initial={{ y, opacity: 1, scale: 1 }}
+      initial={{ y, opacity: 1, scale: 1, rotate: 0 }}
       animate={{ 
-        y: isCollected ? y : window.innerHeight,
+        y: isCollected ? y - 50 : window.innerHeight,
         opacity: isCollected ? 0 : 1,
-        scale: isCollected ? 0.5 : 1
+        scale: isCollected ? 1.2 : 1,
+        rotate: isCollected ? [-10, 10, -10] : 0
       }}
       transition={{ 
         y: {
-          duration: isCollected ? 0.2 : (window.innerHeight - y) / (dropSpeed * 16),
+          duration: isCollected ? 0.5 : (window.innerHeight - y) / (dropSpeed * 16),
           ease: isCollected ? 'easeOut' : 'linear'
         },
         opacity: {
-          duration: 0.2
+          duration: 0.3
         },
         scale: {
-          duration: 0.2
+          duration: 0.3
+        },
+        rotate: {
+          duration: 0.5,
+          repeat: 0
         }
       }}
     >
-      <span className="text-4xl mb-1">{icon}</span>
-      <span className="text-sm text-white bg-black/50 px-2 py-0.5 rounded-md border border-white/30 whitespace-nowrap">
+      <motion.div
+        className={`p-3 rounded-lg border ${typeColors[type]} backdrop-blur-sm`}
+        animate={{ rotate: isCollected ? [0, -15, 15, -15, 0] : 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <span className="text-5xl filter drop-shadow-lg">{icon}</span>
+      </motion.div>
+      <motion.div
+        initial={{ opacity: 0, y: -5 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="mt-2 text-sm text-white bg-black/60 px-3 py-1 rounded-full border border-white/30 whitespace-nowrap backdrop-blur-sm"
+      >
         {name}
-      </span>
+      </motion.div>
     </motion.div>
   );
 };

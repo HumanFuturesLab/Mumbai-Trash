@@ -7,25 +7,25 @@ import Instructions from './components/Instructions';
 import type { WasteCategory, Score, PlayerInfo, ExtendedWasteItem } from './types';
 
 const GAME_WIDTH = 800;
-const BIN_WIDTH = 64;
+const BIN_WIDTH = 80;
 const INITIAL_LIVES = 3;
-const BIN_TOP_Y = 0.85; // Position of bin top relative to screen height
-const BIN_COLLECTION_ZONE = 60; // Increased for better detection
-const BIN_HIT_ZONE = BIN_WIDTH * 0.8; // Wider hit zone
-const BIN_MOVE_SPEED = 10;
-const INITIAL_DROP_SPEED = 1.5;
-const MAX_DROP_SPEED = 4;
-const SPEED_INCREMENT = 0.25;
-const SPEED_INTERVAL = 15000;
-const INITIAL_SPAWN_INTERVAL = 2500;
-const MIN_SPAWN_INTERVAL = 1000;
-const ITEM_SIZE = 40; // Size of waste items for collision detection
-const COMBO_MULTIPLIER = 0.5; // Each combo adds 50% more points
-const MAX_COMBO = 5; // Maximum combo multiplier
-const DIFFICULTY_INTERVAL = 6000; // Increase difficulty every 6 seconds
+const BIN_TOP_Y = 0.85;
+const BIN_COLLECTION_ZONE = 80;
+const BIN_HIT_ZONE = BIN_WIDTH * 0.9;
+const BIN_MOVE_SPEED = 12;
+const INITIAL_DROP_SPEED = 1.0;
+const MAX_DROP_SPEED = 2.8;
+const SPEED_INCREMENT = 0.1;
+const SPEED_INTERVAL = 25000;
+const INITIAL_SPAWN_INTERVAL = 3500;
+const MIN_SPAWN_INTERVAL = 1800;
+const ITEM_SIZE = 48;
+const COMBO_MULTIPLIER = 1.0;
+const MAX_COMBO = 10;
+const DIFFICULTY_INTERVAL = 12000;
 
-const VERTICAL_SAFE_DISTANCE = ITEM_SIZE * 4; // Minimum vertical gap between items
-const HORIZONTAL_SAFE_DISTANCE = ITEM_SIZE * 2; // Minimum horizontal gap between items
+const VERTICAL_SAFE_DISTANCE = ITEM_SIZE * 6;
+const HORIZONTAL_SAFE_DISTANCE = ITEM_SIZE * 3;
 
 const wasteItems = [
   { type: 'Wet' as WasteCategory, name: 'Banana Peel', icon: '🍌' },
@@ -38,6 +38,28 @@ const wasteItems = [
   { type: 'Hazardous' as WasteCategory, name: 'Paint', icon: '🎨' },
   { type: 'Hazardous' as WasteCategory, name: 'Chemical', icon: '⚗️' },
 ];
+
+const SPAWN_PATTERNS = {
+  TUTORIAL: [
+    { type: 'Wet', delay: 1000 },
+    { type: 'Wet', delay: 2500 },
+    { type: 'Dry', delay: 4000 },
+    { type: 'Wet', delay: 5500 },
+  ],
+  EARLY_GAME: [
+    { correctProb: 0.8, maxItems: 1 }, // Level 2
+    { correctProb: 0.7, maxItems: 1 }, // Level 3
+    { correctProb: 0.6, maxItems: 2 }, // Level 4
+  ],
+  MID_GAME: [
+    { correctProb: 0.5, maxItems: 2 }, // Level 5-6
+    { correctProb: 0.5, maxItems: 2 }, // Level 7-8
+  ],
+  LATE_GAME: [
+    { correctProb: 0.4, maxItems: 2 }, // Level 9+
+    { correctProb: 0.4, maxItems: 3 }  // Level 10+
+  ]
+};
 
 function App() {
   const [playerInfo, setPlayerInfo] = useState<PlayerInfo | null>(null);
@@ -62,7 +84,7 @@ function App() {
   const processedCollisions = useRef<Set<string>>(new Set());
   const dropSpeedRef = useRef(INITIAL_DROP_SPEED);
   const spawnIntervalRef = useRef(INITIAL_SPAWN_INTERVAL);
-  const binDirection = useRef<{ left: boolean; right: boolean }>({ left: false, right: false });
+  const binDirection = useRef<{ left: boolean; right: boolean; speedBoost: number }>({ left: false, right: false, speedBoost: 1 });
   const animationFrameId = useRef<number | null>(null);
   const binMoveIntervalId = useRef<number | null>(null);
   const spawnTimeoutId = useRef<NodeJS.Timeout | null>(null);
@@ -129,10 +151,13 @@ function App() {
     if (!gameStarted || gameOver) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      const speedMultiplier = e.shiftKey ? 2 : 1;
       if (e.key === 'ArrowLeft') {
         binDirection.current.left = true;
+        binDirection.current.speedBoost = speedMultiplier;
       } else if (e.key === 'ArrowRight') {
         binDirection.current.right = true;
+        binDirection.current.speedBoost = speedMultiplier;
       }
     };
 
@@ -141,6 +166,9 @@ function App() {
         binDirection.current.left = false;
       } else if (e.key === 'ArrowRight') {
         binDirection.current.right = false;
+      }
+      if (!binDirection.current.left && !binDirection.current.right) {
+        binDirection.current.speedBoost = 1;
       }
     };
 
@@ -158,7 +186,8 @@ function App() {
 
     const moveBin = () => {
       if (binDirection.current.left || binDirection.current.right) {
-        const moveDistance = BIN_MOVE_SPEED * (binDirection.current.left ? -1 : 1);
+        const speedBoost = binDirection.current.speedBoost || 1;
+        const moveDistance = BIN_MOVE_SPEED * speedBoost * (binDirection.current.left ? -1 : 1);
         setBinPosition(pos => {
           const newPos = pos + moveDistance;
           return Math.max(BIN_WIDTH / 2, Math.min(gameWidth - BIN_WIDTH / 2, newPos));
@@ -195,8 +224,19 @@ function App() {
     if (!gameStarted || gameOver) return;
 
     const spawnItem = () => {
-      const itemsToSpawn = Math.min(Math.floor(difficultyLevel / 3) + 1, 2);
-      const usedCategories = new Set<WasteCategory>();
+      // Get spawn configuration based on difficulty level
+      let spawnConfig;
+      if (difficultyLevel === 1) {
+        spawnConfig = SPAWN_PATTERNS.TUTORIAL[0];
+      } else if (difficultyLevel <= 4) {
+        spawnConfig = SPAWN_PATTERNS.EARLY_GAME[difficultyLevel - 2];
+      } else if (difficultyLevel <= 8) {
+        spawnConfig = SPAWN_PATTERNS.MID_GAME[Math.floor((difficultyLevel - 5) / 2)];
+      } else {
+        spawnConfig = SPAWN_PATTERNS.LATE_GAME[Math.min(Math.floor((difficultyLevel - 9) / 2), SPAWN_PATTERNS.LATE_GAME.length - 1)];
+      }
+
+      const itemsToSpawn = Math.min(spawnConfig.maxItems || 1, 3);
       const usedPositions: { x: number, y: number }[] = [];
 
       // Helper to check if a position is safe
@@ -208,34 +248,40 @@ function App() {
         });
       };
 
-      // Helper to get a random category not yet used
-      const getNextCategory = (): WasteCategory => {
-        const categories: WasteCategory[] = ['Wet', 'Dry', 'Hazardous'];
-        const availableCategories = categories.filter(cat => !usedCategories.has(cat));
-        return availableCategories[Math.floor(Math.random() * availableCategories.length)];
+      // Helper to get a random category with weighted probability
+      const getRandomCategory = (): WasteCategory => {
+        const isCorrect = Math.random() < (spawnConfig.correctProb || 0.5);
+        if (isCorrect) {
+          return assignedBin;
+        } else {
+          const otherTypes = ['Wet', 'Dry', 'Hazardous'].filter(type => type !== assignedBin);
+          return otherTypes[Math.floor(Math.random() * otherTypes.length)] as WasteCategory;
+        }
       };
 
-      // Spawn items with safe spacing
+      // Spawn items with improved positioning
       for (let i = 0; i < itemsToSpawn; i++) {
         let safeX: number;
         let safeY: number;
         let attempts = 0;
         const maxAttempts = 10;
 
-        // Find a safe position
         do {
-          safeX = Math.random() * (gameWidth - ITEM_SIZE);
+          // Divide screen into sections for better distribution
+          const section = gameWidth / itemsToSpawn;
+          const sectionStart = i * section;
+          const sectionEnd = (i + 1) * section;
+          
+          safeX = sectionStart + Math.random() * (sectionEnd - sectionStart - ITEM_SIZE);
           safeY = -ITEM_SIZE - (Math.random() * VERTICAL_SAFE_DISTANCE * i);
           attempts++;
         } while (!isPositionSafe(safeX, safeY) && attempts < maxAttempts);
 
-        // Only spawn if we found a safe position
         if (attempts < maxAttempts) {
-          const category = getNextCategory();
+          const category = getRandomCategory();
           const randomItem = wasteItems.find(item => item.type === category);
           
           if (randomItem) {
-            usedCategories.add(category);
             usedPositions.push({ x: safeX, y: safeY });
 
             setItems(prev => [...prev, {
@@ -252,14 +298,41 @@ function App() {
       spawnTimeoutId.current = setTimeout(spawnItem, spawnIntervalRef.current);
     };
 
-    spawnTimeoutId.current = setTimeout(spawnItem, spawnIntervalRef.current);
+    // Start with tutorial pattern if it's the first level
+    if (difficultyLevel === 1) {
+      SPAWN_PATTERNS.TUTORIAL.forEach(({ type, delay }) => {
+        setTimeout(() => {
+          const tutorialItem = wasteItems.find(item => item.type === type);
+          if (tutorialItem) {
+            setItems(prev => [...prev, {
+              ...tutorialItem,
+              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+              x: gameWidth / 2,
+              y: -ITEM_SIZE,
+              isCollected: false
+            }]);
+          }
+        }, delay);
+      });
+      spawnTimeoutId.current = setTimeout(spawnItem, 6000); // Start normal spawning after tutorial
+    } else {
+      spawnTimeoutId.current = setTimeout(spawnItem, spawnIntervalRef.current);
+    }
 
     return () => {
       if (spawnTimeoutId.current) {
         clearTimeout(spawnTimeoutId.current);
       }
     };
-  }, [gameStarted, gameOver, gameWidth, difficultyLevel]);
+  }, [gameStarted, gameOver, gameWidth, difficultyLevel, assignedBin]);
+
+  // Update scoring system
+  const calculateScore = useCallback((comboCount: number) => {
+    const basePoints = 1;
+    const comboBonus = Math.min(comboCount, MAX_COMBO) * COMBO_MULTIPLIER;
+    const levelBonus = Math.log(difficultyLevel) * 0.2;
+    return Math.ceil(basePoints + comboBonus + levelBonus);
+  }, [difficultyLevel]);
 
   // Game Loop using requestAnimationFrame
   useEffect(() => {
@@ -279,37 +352,30 @@ function App() {
           const itemCenterX = item.x + ITEM_SIZE / 2;
           const binTopY = screenHeight * BIN_TOP_Y;
 
-          // Check for collisions near the bin's top edge for wrong items
-          if (!processedCollisions.current.has(item.id) && 
-              item.type !== assignedBin && 
-              Math.abs(itemCenterY - binTopY) < 10) { // Small tolerance zone at bin top
-            
+          // Improved collision detection with gradual scoring zone
+          if (!processedCollisions.current.has(item.id)) {
             const binLeftEdge = binPosition - BIN_HIT_ZONE / 2;
             const binRightEdge = binPosition + BIN_HIT_ZONE / 2;
+            const inBinXRange = itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge;
+            const distanceToBinTop = Math.abs(itemCenterY - binTopY);
 
-            if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
+            // Wrong item collision
+            if (item.type !== assignedBin && 
+                inBinXRange && 
+                distanceToBinTop < 10) {
               processedCollisions.current.add(item.id);
               endGame(`Wrong bin! ${item.name} doesn't belong in the ${assignedBin} waste bin!`);
               return;
             }
-          }
 
-          // Check for correct item collisions within collection zone
-          if (!processedCollisions.current.has(item.id) && 
-              item.type === assignedBin &&
-              itemCenterY >= binTopY - BIN_COLLECTION_ZONE && 
-              itemCenterY <= binTopY + BIN_COLLECTION_ZONE) {
-            
-            const binLeftEdge = binPosition - BIN_HIT_ZONE / 2;
-            const binRightEdge = binPosition + BIN_HIT_ZONE / 2;
-
-            if (itemCenterX >= binLeftEdge && itemCenterX <= binRightEdge) {
+            // Correct item collection with distance-based scoring
+            if (item.type === assignedBin &&
+                inBinXRange &&
+                distanceToBinTop <= BIN_COLLECTION_ZONE) {
               processedCollisions.current.add(item.id);
               
-              const comboBonus = Math.min(comboCount, MAX_COMBO) * COMBO_MULTIPLIER;
-              const pointsToAdd = Math.ceil(1 + comboBonus);
-              
-              setScore(prev => prev + pointsToAdd);
+              const points = calculateScore(comboCount);
+              setScore(prev => prev + points);
               setScoreAnimation(true);
               setLastScorePosition({ x: item.x, y: item.y });
               
@@ -323,7 +389,7 @@ function App() {
             }
           }
 
-          // Check if correct item has passed the collection zone
+          // Life loss check
           if (newY > binTopY + BIN_COLLECTION_ZONE) {
             if (item.type === assignedBin && !processedCollisions.current.has(item.id)) {
               processedCollisions.current.add(item.id);
@@ -336,8 +402,10 @@ function App() {
             }
           }
 
-          // Continue updating position for items that haven't been collected
-          updatedItems.push({ ...item, y: newY });
+          // Remove items that are off screen
+          if (newY < window.innerHeight + ITEM_SIZE) {
+            updatedItems.push({ ...item, y: newY });
+          }
         });
 
         return updatedItems;
@@ -352,7 +420,7 @@ function App() {
         cancelAnimationFrame(animationFrameId.current);
       }
     };
-  }, [gameStarted, gameOver, assignedBin, binPosition, screenHeight, endGame]);
+  }, [gameStarted, gameOver, assignedBin, binPosition, screenHeight, endGame, lives, comboCount, lastCollectedType, calculateScore]);
 
   // Score Animation
   useEffect(() => {
@@ -382,10 +450,11 @@ function App() {
 
     const touchX = e.touches[0].clientX;
     const deltaX = touchX - touchStartXRef.current;
+    const sensitivity = 1.2; // Add touch sensitivity multiplier
 
     requestAnimationFrame(() => {
       setBinPosition(prev => {
-        const newPos = prev + deltaX;
+        const newPos = prev + (deltaX * sensitivity);
         return Math.max(BIN_WIDTH / 2, Math.min(gameWidth - BIN_WIDTH / 2, newPos));
       });
     });
@@ -409,24 +478,36 @@ function App() {
     return () => clearInterval(timer);
   }, [gameStarted, gameOver, score]);
 
-  // Add new useEffect for difficulty progression
+  // Update difficulty progression
   useEffect(() => {
     if (!gameStarted || gameOver) return;
 
     const increaseDifficulty = () => {
-      setDifficultyLevel(prev => prev + 1);
-      
-      // Gentler drop speed increase
-      dropSpeedRef.current = Math.min(
-        INITIAL_DROP_SPEED + (difficultyLevel * SPEED_INCREMENT * 0.5),
-        MAX_DROP_SPEED
-      );
+      setDifficultyLevel(prev => {
+        const newLevel = prev + 1;
+        
+        // Smoother difficulty curve
+        dropSpeedRef.current = Math.min(
+          INITIAL_DROP_SPEED + (Math.log(newLevel) * SPEED_INCREMENT),
+          MAX_DROP_SPEED
+        );
 
-      // Gentler spawn interval decrease
-      spawnIntervalRef.current = Math.max(
-        INITIAL_SPAWN_INTERVAL * Math.pow(0.92, difficultyLevel),
-        MIN_SPAWN_INTERVAL
-      );
+        // Smoother spawn interval reduction
+        spawnIntervalRef.current = Math.max(
+          INITIAL_SPAWN_INTERVAL * Math.pow(0.95, newLevel),
+          MIN_SPAWN_INTERVAL
+        );
+
+        // Change waste type every few levels
+        if (newLevel % 3 === 0) {
+          const currentType = assignedBin;
+          const availableTypes = ['Wet', 'Dry', 'Hazardous'].filter(type => type !== currentType);
+          const newType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
+          setAssignedBin(newType as WasteCategory);
+        }
+
+        return newLevel;
+      });
     };
 
     const difficultyTimer = setInterval(increaseDifficulty, DIFFICULTY_INTERVAL);
@@ -437,7 +518,7 @@ function App() {
         clearInterval(difficultyTimerRef.current);
       }
     };
-  }, [gameStarted, gameOver, difficultyLevel]);
+  }, [gameStarted, gameOver, assignedBin]);
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-gray-900">
@@ -533,7 +614,6 @@ function App() {
           score={score}
           reason={gameOverReason}
           onRestart={() => startGame(playerInfo?.name || '')}
-          highScores={highScores}
           playerName={playerInfo?.name || ''}
         />
       )}
